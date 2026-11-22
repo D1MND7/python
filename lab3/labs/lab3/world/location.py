@@ -11,6 +11,11 @@ from ..item.item import Item
 from ..item.item_catalog import ItemCatalog
 from .expedition_report import ExpeditionReport
 from .rewards import Rewards
+from ..enemy.armored_enemy import ArmoredEnemy
+from ..enemy.legendary_enemy import LegendaryEnemy
+from ..enemy.windfury_enemy import WindfuryEnemy
+from ..tactic.tactic import Tactic
+from ..tactic.balanced_tactic import BalancedTactic
 
 LOOT_CHANCE = 0.6
 ENCHANT_CHANCE = 0.3
@@ -24,33 +29,32 @@ class Location(ABC):
         self._recommended_level = recommended_level
         self._catalog = catalog
 
-    # создание врага делегируется подклассам для повышения гибкости
     @abstractmethod
     def _create_enemy(self) -> Enemy: ...
 
-    # коды предметов из каталога, которые можно найти в локации
     @property
     @abstractmethod
     def _loot_table(self) -> tuple[str, ...]: ...
 
-    # бизнес-логика, общая для всех локаций:
-    # герой встречает врага, сражается с ним и получает награду, если победил
-    def explore(self, hero: Hero, seed: int | None = None) -> ExpeditionReport:
+    def explore(self, hero: Hero, seed: int | None = None, tactic: Tactic | None = None) -> ExpeditionReport:
         dice = Dice()
         if seed is None:
             seed = dice.next_seed()
         dice.reseed(seed)
 
-        hero.restore_health()
+        tactic = tactic if tactic is not None else BalancedTactic()
+        hero.rest()
         enemy = self._create_enemy()
-        battle = Battle(hero, enemy).run()
+        if dice.chance(0.2):
+            enemy = self._make_elite(enemy, dice)
+        battle = Battle(hero, enemy, tactic).run()
 
         if battle.outcome == Outcome.VICTORY:
             rewards = self._reward(hero, enemy, dice)
         else:
             rewards = self._punish(hero)
 
-        return ExpeditionReport(seed, self._code, battle, rewards)
+        return ExpeditionReport(seed, self._code, tactic.code, battle, rewards)
 
     def _reward(self, hero: Hero, enemy: Enemy, dice: Dice) -> Rewards:
         experience = enemy.experience_reward
@@ -68,14 +72,12 @@ class Location(ABC):
         if not dice.chance(LOOT_CHANCE):
             return None
 
-        # добыча - это копия шаблона из каталога, ее можно менять, не боясь испортить шаблон
         loot = self._catalog.create(dice.pick(self._loot_table))
         if dice.chance(ENCHANT_CHANCE):
             loot.enchant(dice.pick(loot.possible_enchantments))
 
         return loot
 
-    # проигравший герой теряет половину золота
     def _punish(self, hero: Hero) -> Rewards:
         lost_gold = hero.gold // 2
         hero.spend_gold(lost_gold)
@@ -92,3 +94,15 @@ class Location(ABC):
     @property
     def recommended_level(self) -> int:
         return self._recommended_level
+
+    def _make_elite(self, enemy: Enemy, dice: Dice) -> Enemy:
+        both = dice.chance(0.25)
+        if dice.chance(0.5):
+            enemy = LegendaryEnemy(enemy)
+            if both:
+                enemy = WindfuryEnemy(enemy)
+        else:
+            enemy = WindfuryEnemy(enemy)
+            if both:
+                enemy = LegendaryEnemy(enemy)
+        return ArmoredEnemy(enemy) if dice.chance(0.3) else enemy

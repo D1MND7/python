@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 
 
-# зачарование неизменяемо (frozen=True): его нельзя поменять после создания,
-# поэтому одно и то же зачарование можно безопасно повесить на несколько предметов
 @dataclass(frozen=True)
 class Enchantment:
     code: str
@@ -19,3 +17,12 @@ WARDING = Enchantment("warding", "Охранное", 0, 0.10, 50)
 
 FOR_WEAPONS = (SHARP, FIERY)
 FOR_ARMOR = (STURDY, WARDING)
+
+
+def by_code(code: str) -> Enchantment:
+    from ..core.unknown_code_error import UnknownCodeError
+
+    for enchantment in (*FOR_WEAPONS, *FOR_ARMOR):
+        if enchantment.code == code:
+            return enchantment
+    raise UnknownCodeError("Зачарование", code)
